@@ -4,21 +4,29 @@ import json
 
 def send_message(server_url, text):
     try:
-        response = requests.post(f"{server_url}/send", json={'text': text}, headers={'Content-Type': 'application/json'}, timeout=10)
+        headers = {
+            'Content-Type': 'application/json',
+            'Bypass-Tunnel-Reminder': 'true'
+        }
+        response = requests.post(f"{server_url}/send", json={'text': text}, headers=headers, timeout=30)
         if response.status_code == 200:
             return True, response.json()
         else:
-            return False, f"Error: {response.status_code}"
+            return False, f"Error: {response.status_code} - {response.text[:100]}"
     except Exception as e:
         return False, f"Error: {str(e)}"
 
 def receive_message(server_url, message_id):
     try:
-        response = requests.post(f"{server_url}/receive", json={'message_id': message_id}, headers={'Content-Type': 'application/json'}, timeout=10)
+        headers = {
+            'Content-Type': 'application/json',
+            'Bypass-Tunnel-Reminder': 'true'
+        }
+        response = requests.post(f"{server_url}/receive", json={'message_id': message_id}, headers=headers, timeout=30)
         if response.status_code == 200:
             return True, response.json()
         else:
-            return False, f"Error: {response.status_code}"
+            return False, f"Error: {response.status_code} - {response.text[:100]}"
     except Exception as e:
         return False, f"Error: {str(e)}"
 
@@ -45,7 +53,8 @@ def main():
                 print(f"\nSUCCESS!")
                 print(f"Message ID: {result['message_id']}")
                 print(f"Key: {result['key']}")
-                print(f"Ciphertext: {result['ciphertext']}")
+                print(f"Ciphertext: {result.get('ciphertext', 'N/A')}")
+                print("\nShare the Message ID with the receiver!")
             else:
                 print(f"\nFAILED: {result}")
         
@@ -58,8 +67,8 @@ def main():
             if success:
                 print(f"\nSUCCESS!")
                 print(f"Plaintext: {result['plaintext']}")
-                print(f"Ciphertext: {result['ciphertext']}")
-                print(f"Key: {result['key']}")
+                print(f"Ciphertext: {result.get('ciphertext', 'N/A')}")
+                print(f"Key: {result.get('key', 'N/A')}")
             else:
                 print(f"\nFAILED: {result}")
         

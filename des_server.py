@@ -290,10 +290,14 @@ def send_message():
 			'sender_info': 'Client 1'
 		}
 		
+		# Join encrypted blocks into single ciphertext
+		ciphertext = ''.join(encrypted_blocks)
+		
 		return jsonify({
 			'status': 'success',
 			'message_id': message_id,
 			'key': key,
+			'ciphertext': ciphertext,
 			'plaintext': plaintext,
 			'encrypted_blocks': len(encrypted_blocks),
 			'instruction': f'Share this message_id with the receiver: {message_id}'
