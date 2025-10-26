@@ -348,10 +348,14 @@ def receive_message():
 		# Convert back to text
 		plaintext = hex_blocks_to_text(decrypted_blocks, original_length)
 		
+		# Join encrypted blocks into single ciphertext
+		ciphertext = ''.join(encrypted_blocks)
+		
 		return jsonify({
 			'status': 'success',
 			'message_id': message_id,
 			'plaintext': plaintext,
+			'ciphertext': ciphertext,
 			'key': key,
 			'timestamp': msg['timestamp'],
 			'encrypted_blocks': len(encrypted_blocks)
