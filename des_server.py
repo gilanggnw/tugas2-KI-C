@@ -1,7 +1,12 @@
 # DES Server - Handles encryption/decryption requests from clients via HTTP
+# Supports message storage for client-to-client communication
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import json
+import uuid
+import random
+import hashlib
+from datetime import datetime
 
 # All DES functions from original code
 def hex2bin(s):
@@ -181,6 +186,40 @@ def validate_hex_input(data, length):
 	
 	return True, "Valid"
 
+# Helper functions for free-text encryption
+def generate_random_key():
+	"""Generate a random 16-character hex key (64 bits)"""
+	return ''.join(random.choices('0123456789ABCDEF', k=16))
+
+def text_to_hex_blocks(text):
+	"""Convert any text to hex blocks of 16 chars (padding if needed)"""
+	# Convert text to bytes, then to hex
+	text_bytes = text.encode('utf-8')
+	hex_str = text_bytes.hex().upper()
+	
+	# Pad to multiple of 16
+	while len(hex_str) % 16 != 0:
+		hex_str += '0'
+	
+	# Split into 16-char blocks
+	blocks = [hex_str[i:i+16] for i in range(0, len(hex_str), 16)]
+	return blocks
+
+def hex_blocks_to_text(blocks, original_length):
+	"""Convert hex blocks back to text"""
+	# Join all blocks
+	hex_str = ''.join(blocks)
+	
+	# Convert hex to bytes
+	text_bytes = bytes.fromhex(hex_str)
+	
+	# Decode and trim to original length
+	text = text_bytes.decode('utf-8', errors='ignore')
+	return text[:original_length]
+
+# In-memory storage for messages (client-to-client communication)
+messages_store = {}
+
 # Initialize Flask app
 app = Flask(__name__)
 CORS(app)  # Enable CORS for cross-origin requests
@@ -189,13 +228,153 @@ CORS(app)  # Enable CORS for cross-origin requests
 def home():
 	return jsonify({
 		'status': 'success',
-		'message': 'DES Encryption/Decryption Server is running',
+		'message': 'DES Encryption/Decryption Server with Client-to-Client Communication',
 		'endpoints': {
 			'/': 'GET - Server info',
-			'/encrypt': 'POST - Encrypt data',
-			'/decrypt': 'POST - Decrypt data',
-			'/process': 'POST - Encrypt or decrypt based on operation parameter'
+			'/send': 'POST - Encrypt and store message (returns message_id)',
+			'/receive': 'POST - Retrieve and decrypt message by message_id',
+			'/messages': 'GET - List all stored messages',
+			'/encrypt': 'POST - Direct encrypt (legacy)',
+			'/decrypt': 'POST - Direct decrypt (legacy)'
+		},
+		'usage': {
+			'sender': 'POST /send with {\"text\": \"your message\"} → get message_id',
+			'receiver': 'POST /receive with {\"message_id\": \"xxx\"} → get decrypted text'
 		}
+	})
+
+@app.route('/send', methods=['POST'])
+def send_message():
+	"""Client 1: Send encrypted message - returns message_id for sharing"""
+	try:
+		data = request.get_json()
+		
+		if not data or 'text' not in data:
+			return jsonify({
+				'status': 'error',
+				'message': 'Missing required field: text'
+			}), 400
+		
+		plaintext = data['text']
+		
+		if not plaintext:
+			return jsonify({
+				'status': 'error',
+				'message': 'Text cannot be empty'
+			}), 400
+		
+		# Generate random key
+		key = generate_random_key()
+		
+		# Convert plaintext to hex blocks
+		original_length = len(plaintext)
+		hex_blocks = text_to_hex_blocks(plaintext)
+		
+		# Encrypt each block
+		rkb = generate_round_keys(key)
+		encrypted_blocks = []
+		
+		for block in hex_blocks:
+			cipher_block = bin2hex(encrypt_decrypt(block, rkb))
+			encrypted_blocks.append(cipher_block)
+		
+		# Generate unique message ID
+		message_id = str(uuid.uuid4())[:8]
+		
+		# Store message
+		messages_store[message_id] = {
+			'encrypted_blocks': encrypted_blocks,
+			'key': key,
+			'original_length': original_length,
+			'timestamp': datetime.now().isoformat(),
+			'sender_info': 'Client 1'
+		}
+		
+		return jsonify({
+			'status': 'success',
+			'message_id': message_id,
+			'key': key,
+			'plaintext': plaintext,
+			'encrypted_blocks': len(encrypted_blocks),
+			'instruction': f'Share this message_id with the receiver: {message_id}'
+		})
+	
+	except Exception as e:
+		return jsonify({
+			'status': 'error',
+			'message': f'Error: {str(e)}'
+		}), 500
+
+@app.route('/receive', methods=['POST'])
+def receive_message():
+	"""Client 2: Receive and decrypt message using message_id"""
+	try:
+		data = request.get_json()
+		
+		if not data or 'message_id' not in data:
+			return jsonify({
+				'status': 'error',
+				'message': 'Missing required field: message_id'
+			}), 400
+		
+		message_id = data['message_id']
+		
+		# Check if message exists
+		if message_id not in messages_store:
+			return jsonify({
+				'status': 'error',
+				'message': f'Message ID not found: {message_id}'
+			}), 404
+		
+		# Retrieve message
+		msg = messages_store[message_id]
+		encrypted_blocks = msg['encrypted_blocks']
+		key = msg['key']
+		original_length = msg['original_length']
+		
+		# Decrypt each block
+		rkb = generate_round_keys(key)
+		rkb_rev = rkb[::-1]
+		decrypted_blocks = []
+		
+		for block in encrypted_blocks:
+			plain_block = bin2hex(encrypt_decrypt(block, rkb_rev))
+			decrypted_blocks.append(plain_block)
+		
+		# Convert back to text
+		plaintext = hex_blocks_to_text(decrypted_blocks, original_length)
+		
+		return jsonify({
+			'status': 'success',
+			'message_id': message_id,
+			'plaintext': plaintext,
+			'key': key,
+			'timestamp': msg['timestamp'],
+			'encrypted_blocks': len(encrypted_blocks)
+		})
+	
+	except Exception as e:
+		return jsonify({
+			'status': 'error',
+			'message': f'Error: {str(e)}'
+		}), 500
+
+@app.route('/messages', methods=['GET'])
+def list_messages():
+	"""List all stored messages (for debugging)"""
+	messages_list = []
+	for msg_id, msg_data in messages_store.items():
+		messages_list.append({
+			'message_id': msg_id,
+			'timestamp': msg_data['timestamp'],
+			'blocks_count': len(msg_data['encrypted_blocks']),
+			'sender_info': msg_data.get('sender_info', 'Unknown')
+		})
+	
+	return jsonify({
+		'status': 'success',
+		'total_messages': len(messages_list),
+		'messages': messages_list
 	})
 
 @app.route('/process', methods=['POST'])

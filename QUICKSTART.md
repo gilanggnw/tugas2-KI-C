@@ -1,4 +1,34 @@
-# Quick Start Guide - DES HTTP Server with Localtunnel
+# Quick Start Guide - DES Client-to-Client Communication
+
+## Konsep
+
+Sistem ini memungkinkan **komunikasi antar client** melalui server:
+- **Client 1 (Sender)**: Encrypt pesan → dapat Message ID
+- **Client 2 (Receiver)**: Gunakan Message ID → decrypt pesan
+- **Key otomatis di-generate** oleh server
+- **Plaintext bebas** - bisa teks apa saja, tidak ada batasan!
+
+```
+Client 1 (Sender)          Server              Client 2 (Receiver)
+      │                       │                         │
+      │  POST /send          │                         │
+      │  {text: "Hello"}     │                         │
+      ├─────────────────────>│                         │
+      │                       │ Generate key            │
+      │                       │ Encrypt                 │
+      │  {message_id: "abc"} │ Store                   │
+      │<─────────────────────┤                         │
+      │                       │                         │
+      │  Share message_id     │                         │
+      │──────────────────────────────────────────────>│
+      │                       │                         │
+      │                       │  POST /receive          │
+      │                       │  {message_id: "abc"}    │
+      │                       │<────────────────────────┤
+      │                       │ Decrypt                 │
+      │                       │ {plaintext: "Hello"}    │
+      │                       ├────────────────────────>│
+```
 
 ## Quick Start (3 Steps)
 
@@ -13,12 +43,28 @@ pip install -r requirements.txt
 python des_server.py
 ```
 
-### 3. Test Locally
-Open a new terminal and run:
+### 3. Test Communication
+
+**Terminal 1 - Start Server:**
 ```powershell
-python des_client.py
+python des_server.py
 ```
-When prompted for server URL, enter: `http://localhost:5000`
+
+**Terminal 2 - Client 1 (Sender):**
+```powershell
+python client_sender.py
+```
+- Enter: `http://localhost:5000`
+- Type your message (any text!)
+- You'll get a **Message ID**
+
+**Terminal 3 - Client 2 (Receiver):**
+```powershell
+python client_receiver.py
+```
+- Enter: `http://localhost:5000`
+- Paste the **Message ID** from Client 1
+- See the decrypted message!
 
 ---
 
@@ -49,11 +95,17 @@ You'll see output like:
 your url is: https://your-random-name.loca.lt
 ```
 
-4. **Use the client** with your localtunnel URL:
+4. **Client 1 (Sender)** - Kirim pesan:
 ```powershell
-python des_client.py
+python client_sender.py
 ```
-When prompted, enter: `https://your-random-name.loca.lt`
+Enter localtunnel URL, then send your message
+
+5. **Client 2 (Receiver)** - Terima pesan:
+```powershell
+python client_receiver.py
+```
+Enter localtunnel URL and Message ID to decrypt
 
 ---
 
@@ -132,10 +184,10 @@ taskkill /PID <PID> /F
 
 | File | Purpose |
 |------|---------|
-| `des_server.py` | HTTP server (port 5000) |
-| `des_client.py` | Interactive HTTP client |
-| `test_http_server.py` | Automated test suite |
-| `desencryption_tugas2.py` | Original standalone implementation |
+| `des_server.py` | HTTP server with message storage (port 5000) |
+| `client_sender.py` | Client 1 - Send encrypted messages |
+| `client_receiver.py` | Client 2 - Receive and decrypt messages |
+| `des_client.py` | Old client (legacy) |
 | `requirements.txt` | Python dependencies |
 
 ---

@@ -19,6 +19,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+*.pyc
 
 # Virtual Environment
 venv/
@@ -36,3 +37,7 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# Project specific
+*.log
+.env

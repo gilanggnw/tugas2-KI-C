@@ -1,32 +1,44 @@
-# DES Encryption/Decryption HTTP Server & Client
+# DES Client-to-Client Encrypted Communication
 
-A DES (Data Encryption Standard) implementation with HTTP-based client-server architecture, compatible with localtunnel for remote access.
+Sistem enkripsi DES yang memungkinkan **komunikasi antar client** secara aman melalui server dengan HTTP-based architecture.
 
 ## Features
 
-- HTTP-based communication (compatible with localtunnel)
-- RESTful API endpoints for encryption and decryption
-- Interactive command-line client
-- Support for both local and remote connections
-- CORS enabled for web access
+- ✅ **Client-to-Client Communication** - Client 1 encrypt & send, Client 2 receive & decrypt
+- ✅ **Auto Key Generation** - Server generates random DES key automatically
+- ✅ **Free Text Input** - No hex format restriction, send any text!
+- ✅ **Message ID System** - Share message ID to allow decryption
+- ✅ **Localtunnel Compatible** - Access from anywhere via internet
+- ✅ **RESTful API** - Clean HTTP endpoints
+- ✅ **CORS Enabled** - Web access ready
 
-## Installation
+## Quick Start
 
-1. Install required dependencies:
+### Local Testing
+
+1. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-## Usage
-
-### Starting the Server
-
-Run the server locally:
+2. Start server:
 ```bash
 python des_server.py
 ```
 
-The server will start on `http://0.0.0.0:5000`.
+3. Client 1 (Sender) - Send message:
+```bash
+python client_sender.py
+```
+Enter server URL: `http://localhost:5000`
+Type your message and get Message ID
+
+4. Client 2 (Receiver) - Receive message:
+```bash
+python client_receiver.py
+```
+Enter server URL: `http://localhost:5000`
+Enter Message ID to decrypt message
 
 ### Using Localtunnel
 
@@ -51,67 +63,15 @@ lt --port 5000
 
 5. Use this URL in the client to connect remotely!
 
-### Using the Client
-
-Run the client:
-```bash
-python des_client.py
-```
-
-When prompted:
-- For local connection: Enter `http://localhost` or `http://127.0.0.1`
-- For localtunnel connection: Enter the URL provided by localtunnel (e.g., `https://your-tunnel.loca.lt`)
-
 ## API Endpoints
 
-### GET /
-Returns server information and available endpoints.
-
-**Response:**
-```json
-{
-  "status": "success",
-  "message": "DES Encryption/Decryption Server is running",
-  "endpoints": {
-    "/": "GET - Server info",
-    "/encrypt": "POST - Encrypt data",
-    "/decrypt": "POST - Decrypt data",
-    "/process": "POST - Encrypt or decrypt based on operation parameter"
-  }
-}
-```
-
-### POST /process
-Encrypt or decrypt data based on the operation parameter.
+### POST /send
+Send encrypted message (Client 1)
 
 **Request:**
 ```json
 {
-  "operation": "ENCRYPT",  // or "DECRYPT"
-  "plaintext": "0123456789ABCDEF",
-  "key": "133457799BBCDFF1"
-}
-```
-
-**Response (Encrypt):**
-```json
-{
-  "status": "success",
-  "operation": "encrypt",
-  "plaintext": "0123456789ABCDEF",
-  "key": "133457799BBCDFF1",
-  "ciphertext": "85E813540F0AB405"
-}
-```
-
-### POST /encrypt
-Encrypt plaintext.
-
-**Request:**
-```json
-{
-  "plaintext": "0123456789ABCDEF",
-  "key": "133457799BBCDFF1"
+  "text": "Any message you want to send!"
 }
 ```
 
@@ -119,21 +79,20 @@ Encrypt plaintext.
 ```json
 {
   "status": "success",
-  "operation": "encrypt",
-  "plaintext": "0123456789ABCDEF",
-  "key": "133457799BBCDFF1",
-  "ciphertext": "85E813540F0AB405"
+  "message_id": "a1b2c3d4",
+  "key": "ABCD1234567890EF",
+  "plaintext": "Any message you want to send!",
+  "encrypted_blocks": 2
 }
 ```
 
-### POST /decrypt
-Decrypt ciphertext.
+### POST /receive
+Receive and decrypt message (Client 2)
 
 **Request:**
 ```json
 {
-  "ciphertext": "85E813540F0AB405",
-  "key": "133457799BBCDFF1"
+  "message_id": "a1b2c3d4"
 }
 ```
 
@@ -141,58 +100,68 @@ Decrypt ciphertext.
 ```json
 {
   "status": "success",
-  "operation": "decrypt",
-  "ciphertext": "85E813540F0AB405",
-  "key": "133457799BBCDFF1",
-  "plaintext": "0123456789ABCDEF"
+  "message_id": "a1b2c3d4",
+  "plaintext": "Any message you want to send!",
+  "key": "ABCD1234567890EF",
+  "timestamp": "2025-10-26T10:30:00"
+}
+```
+
+### GET /messages
+List all stored messages
+
+**Response:**
+```json
+{
+  "status": "success",
+  "total_messages": 5,
+  "messages": [...]
 }
 ```
 
 ## Testing with cURL
 
-### Test server connection:
-```bash
-curl http://localhost/
-```
+Test the API endpoints:
 
-### Encrypt data:
 ```bash
-curl -X POST http://localhost/encrypt \
+# Send message
+curl -X POST http://localhost:5000/send \
   -H "Content-Type: application/json" \
-  -d '{"plaintext": "0123456789ABCDEF", "key": "133457799BBCDFF1"}'
-```
+  -d '{"text": "Hello World!"}'
 
-### Decrypt data:
-```bash
-curl -X POST http://localhost/decrypt \
+# Receive message (use message_id from above)
+curl -X POST http://localhost:5000/receive \
   -H "Content-Type: application/json" \
-  -d '{"ciphertext": "85E813540F0AB405", "key": "133457799BBCDFF1"}'
+  -d '{"message_id": "YOUR_MESSAGE_ID"}'
+
+# List all messages
+curl http://localhost:5000/messages
 ```
-
-## Input Format
-
-- **Plaintext/Ciphertext**: Exactly 16 hexadecimal characters (64 bits)
-- **Key**: Exactly 16 hexadecimal characters (64 bits)
-- **Valid hex characters**: 0-9, A-F (case insensitive)
 
 ## Files
 
-- `des_server.py` - HTTP server implementing DES encryption/decryption (port 5000)
-- `des_client.py` - Interactive HTTP client
+- `des_server.py` - HTTP server with message storage (port 5000)
+- `client_sender.py` - Client 1 - Send encrypted messages
+- `client_receiver.py` - Client 2 - Receive and decrypt messages  
+- `test_client_communication.py` - Automated test script
 - `desencryption_tugas2.py` - Original standalone DES implementation
 - `requirements.txt` - Python dependencies
-- `README.md` - This file
 
-## Notes
+## How It Works
 
-- The server uses Flask and runs on port 5000
-- No administrator privileges required
-- Suitable for educational purposes and development
-- For production use, consider adding authentication and HTTPS
+1. **Client 1** sends plaintext → Server generates key → Encrypts with DES → Stores with message_id
+2. **Client 1** shares message_id with **Client 2**
+3. **Client 2** requests with message_id → Server decrypts → Returns plaintext
+4. **Auto key generation** - No manual key coordination needed
+5. **Free text** - No hex format required, send any text!
 
 ## Troubleshooting
 
-### Localtunnel Connection Issues
-- Make sure your server is running before starting localtunnel
-- The server runs on port 5000 by default
-- Some networks may block localtunnel connections
+- **Cannot connect to server**: Make sure server is running and firewall allows port 5000
+- **Message ID not found**: Server stores messages in memory (lost on restart)
+- **Localtunnel issues**: Ensure server is running before starting localtunnel
+
+---
+
+**For detailed documentation, see [README_CLIENT.md](README_CLIENT.md)**  
+**Quick start guide: [QUICKSTART.md](QUICKSTART.md)**
