@@ -1,7 +1,7 @@
-# DES Server - Handles encryption/decryption requests from clients
-import socket
+# DES Server - Handles encryption/decryption requests from clients via HTTP
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 import json
-import threading
 
 # All DES functions from original code
 def hex2bin(s):
@@ -181,130 +181,209 @@ def validate_hex_input(data, length):
 	
 	return True, "Valid"
 
-def handle_client(client_socket, client_address):
-	print(f"[INFO] New client connected: {client_address}")
-	
-	try:
-		while True:
-			# Receive data from client
-			data = client_socket.recv(4096).decode('utf-8')
-			if not data:
-				break
-			
-			try:
-				request = json.loads(data)
-				print(f"[INFO] Received request from {client_address}: {request['operation']}")
-				
-				# Validate request format
-				if 'operation' not in request or 'plaintext' not in request or 'key' not in request:
-					response = {
-						'status': 'error',
-						'message': 'Invalid request format. Required: operation, plaintext, key'
-					}
-				else:
-					operation = request['operation'].upper()
-					plaintext = request['plaintext'].upper()
-					key = request['key'].upper()
-					
-					# Validate inputs
-					valid_pt, pt_msg = validate_hex_input(plaintext, 16)
-					valid_key, key_msg = validate_hex_input(key, 16)
-					
-					if not valid_pt:
-						response = {
-							'status': 'error',
-							'message': f'Invalid plaintext: {pt_msg}'
-						}
-					elif not valid_key:
-						response = {
-							'status': 'error',
-							'message': f'Invalid key: {key_msg}'
-						}
-					elif operation not in ['ENCRYPT', 'DECRYPT']:
-						response = {
-							'status': 'error',
-							'message': 'Invalid operation. Use ENCRYPT or DECRYPT'
-						}
-					else:
-						# Generate round keys
-						rkb = generate_round_keys(key)
-						
-						if operation == 'ENCRYPT':
-							# Encrypt
-							result = bin2hex(encrypt_decrypt(plaintext, rkb))
-							response = {
-								'status': 'success',
-								'operation': 'encrypt',
-								'plaintext': plaintext,
-								'key': key,
-								'ciphertext': result
-							}
-						else:  # DECRYPT
-							# Decrypt (reverse round keys)
-							rkb_rev = rkb[::-1]
-							result = bin2hex(encrypt_decrypt(plaintext, rkb_rev))
-							response = {
-								'status': 'success',
-								'operation': 'decrypt',
-								'ciphertext': plaintext,
-								'key': key,
-								'plaintext': result
-							}
-				
-			except json.JSONDecodeError:
-				response = {
-					'status': 'error',
-					'message': 'Invalid JSON format'
-				}
-			except Exception as e:
-				response = {
-					'status': 'error',
-					'message': f'Processing error: {str(e)}'
-				}
-			
-			# Send response back to client
-			response_json = json.dumps(response)
-			client_socket.send(response_json.encode('utf-8'))
-			print(f"[INFO] Sent response to {client_address}: {response['status']}")
-	
-	except Exception as e:
-		print(f"[ERROR] Error handling client {client_address}: {e}")
-	
-	finally:
-		client_socket.close()
-		print(f"[INFO] Client {client_address} disconnected")
+# Initialize Flask app
+app = Flask(__name__)
+CORS(app)  # Enable CORS for cross-origin requests
 
-def start_server(host='0.0.0.0', port=80):
-	server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-	server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-	
+@app.route('/', methods=['GET'])
+def home():
+	return jsonify({
+		'status': 'success',
+		'message': 'DES Encryption/Decryption Server is running',
+		'endpoints': {
+			'/': 'GET - Server info',
+			'/encrypt': 'POST - Encrypt data',
+			'/decrypt': 'POST - Decrypt data',
+			'/process': 'POST - Encrypt or decrypt based on operation parameter'
+		}
+	})
+
+@app.route('/process', methods=['POST'])
+def process_request():
 	try:
-		server_socket.bind((host, port))
-		server_socket.listen(5)
+		# Get JSON data from request
+		data = request.get_json()
 		
-		print("=" * 60)
-		print("DES ENCRYPTION/DECRYPTION SERVER")
-		print("=" * 60)
-		print(f"Server listening on {host}:{port}")
-		print("Waiting for client connections...")
-		print("Press Ctrl+C to stop the server")
-		print("=" * 60)
+		# Validate request format
+		if not data or 'operation' not in data or 'plaintext' not in data or 'key' not in data:
+			return jsonify({
+				'status': 'error',
+				'message': 'Invalid request format. Required: operation, plaintext, key'
+			}), 400
 		
-		while True:
-			client_socket, client_address = server_socket.accept()
-			client_thread = threading.Thread(
-				target=handle_client,
-				args=(client_socket, client_address)
-			)
-			client_thread.daemon = True
-			client_thread.start()
+		operation = data['operation'].upper()
+		plaintext = data['plaintext'].upper()
+		key = data['key'].upper()
+		
+		# Validate inputs
+		valid_pt, pt_msg = validate_hex_input(plaintext, 16)
+		valid_key, key_msg = validate_hex_input(key, 16)
+		
+		if not valid_pt:
+			return jsonify({
+				'status': 'error',
+				'message': f'Invalid plaintext: {pt_msg}'
+			}), 400
+		
+		if not valid_key:
+			return jsonify({
+				'status': 'error',
+				'message': f'Invalid key: {key_msg}'
+			}), 400
+		
+		if operation not in ['ENCRYPT', 'DECRYPT']:
+			return jsonify({
+				'status': 'error',
+				'message': 'Invalid operation. Use ENCRYPT or DECRYPT'
+			}), 400
+		
+		# Generate round keys
+		rkb = generate_round_keys(key)
+		
+		if operation == 'ENCRYPT':
+			# Encrypt
+			result = bin2hex(encrypt_decrypt(plaintext, rkb))
+			return jsonify({
+				'status': 'success',
+				'operation': 'encrypt',
+				'plaintext': plaintext,
+				'key': key,
+				'ciphertext': result
+			})
+		else:  # DECRYPT
+			# Decrypt (reverse round keys)
+			rkb_rev = rkb[::-1]
+			result = bin2hex(encrypt_decrypt(plaintext, rkb_rev))
+			return jsonify({
+				'status': 'success',
+				'operation': 'decrypt',
+				'ciphertext': plaintext,
+				'key': key,
+				'plaintext': result
+			})
 	
-	except KeyboardInterrupt:
-		print("\n[INFO] Server shutting down...")
 	except Exception as e:
-		print(f"[ERROR] Server error: {e}")
-	finally:
-		server_socket.close()
+		return jsonify({
+			'status': 'error',
+			'message': f'Processing error: {str(e)}'
+		}), 500
+
+@app.route('/encrypt', methods=['POST'])
+def encrypt_endpoint():
+	try:
+		data = request.get_json()
+		
+		if not data or 'plaintext' not in data or 'key' not in data:
+			return jsonify({
+				'status': 'error',
+				'message': 'Invalid request format. Required: plaintext, key'
+			}), 400
+		
+		plaintext = data['plaintext'].upper()
+		key = data['key'].upper()
+		
+		# Validate inputs
+		valid_pt, pt_msg = validate_hex_input(plaintext, 16)
+		valid_key, key_msg = validate_hex_input(key, 16)
+		
+		if not valid_pt:
+			return jsonify({
+				'status': 'error',
+				'message': f'Invalid plaintext: {pt_msg}'
+			}), 400
+		
+		if not valid_key:
+			return jsonify({
+				'status': 'error',
+				'message': f'Invalid key: {key_msg}'
+			}), 400
+		
+		# Generate round keys and encrypt
+		rkb = generate_round_keys(key)
+		result = bin2hex(encrypt_decrypt(plaintext, rkb))
+		
+		return jsonify({
+			'status': 'success',
+			'operation': 'encrypt',
+			'plaintext': plaintext,
+			'key': key,
+			'ciphertext': result
+		})
+	
+	except Exception as e:
+		return jsonify({
+			'status': 'error',
+			'message': f'Processing error: {str(e)}'
+		}), 500
+
+@app.route('/decrypt', methods=['POST'])
+def decrypt_endpoint():
+	try:
+		data = request.get_json()
+		
+		if not data or 'ciphertext' not in data or 'key' not in data:
+			return jsonify({
+				'status': 'error',
+				'message': 'Invalid request format. Required: ciphertext, key'
+			}), 400
+		
+		ciphertext = data['ciphertext'].upper()
+		key = data['key'].upper()
+		
+		# Validate inputs
+		valid_ct, ct_msg = validate_hex_input(ciphertext, 16)
+		valid_key, key_msg = validate_hex_input(key, 16)
+		
+		if not valid_ct:
+			return jsonify({
+				'status': 'error',
+				'message': f'Invalid ciphertext: {ct_msg}'
+			}), 400
+		
+		if not valid_key:
+			return jsonify({
+				'status': 'error',
+				'message': f'Invalid key: {key_msg}'
+			}), 400
+		
+		# Generate round keys and decrypt
+		rkb = generate_round_keys(key)
+		rkb_rev = rkb[::-1]
+		result = bin2hex(encrypt_decrypt(ciphertext, rkb_rev))
+		
+		return jsonify({
+			'status': 'success',
+			'operation': 'decrypt',
+			'ciphertext': ciphertext,
+			'key': key,
+			'plaintext': result
+		})
+	
+	except Exception as e:
+		return jsonify({
+			'status': 'error',
+			'message': f'Processing error: {str(e)}'
+		}), 500
 
 if __name__ == "__main__":
-	start_server()
+	print("=" * 60)
+	print("DES ENCRYPTION/DECRYPTION HTTP SERVER")
+	print("=" * 60)
+	print("Server starting on port 5000...")
+	print("Endpoints available:")
+	print("  GET  / - Server info")
+	print("  POST /process - Encrypt or decrypt (operation parameter)")
+	print("  POST /encrypt - Encrypt data")
+	print("  POST /decrypt - Decrypt data")
+	print("=" * 60)
+	print("\nTo use with localtunnel:")
+	print("  1. Keep this server running")
+	print("  2. Open a new terminal")
+	print("  3. Run: lt --port 5000")
+	print("  4. Use the provided URL in the client")
+	print("=" * 60)
+	print()
+	
+	# Run Flask app on port 5000 (doesn't require admin privileges)
+	# Perfect for development and localtunnel
+	app.run(host='0.0.0.0', port=5000, debug=False)

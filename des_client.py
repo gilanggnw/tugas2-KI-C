@@ -1,7 +1,6 @@
-# DES Client - Sends encryption/decryption requests to server
-import socket
-import json
+# DES Client - Sends encryption/decryption requests to server via HTTP
 import requests
+import json
 
 def validate_hex_input(data, length):
 	if len(data) != length:
@@ -13,34 +12,31 @@ def validate_hex_input(data, length):
 	
 	return True, "Valid"
 
-def send_request(host, port, operation, data, key):
+def send_request_http(url, operation, data, key):
+	"""Send HTTP request to the DES server"""
 	try:
-		# Create socket and connect to server
-		client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		client_socket.connect((host, port))
-		
-		# Prepare request
-		request = {
+		# Prepare request payload
+		request_data = {
 			'operation': operation,
 			'plaintext': data,
 			'key': key
 		}
 		
-		# Send request
-		request_json = json.dumps(request)
-		client_socket.send(request_json.encode('utf-8'))
+		# Send POST request to /process endpoint
+		response = requests.post(f"{url}/process", json=request_data, timeout=30)
 		
-		# Receive response
-		response_data = client_socket.recv(4096).decode('utf-8')
-		response = json.loads(response_data)
-		
-		client_socket.close()
-		return response
+		# Return JSON response
+		return response.json()
 	
-	except ConnectionRefusedError:
+	except requests.exceptions.ConnectionError:
 		return {
 			'status': 'error',
-			'message': f'Cannot connect to server at {host}:{port}. Make sure the server is running.'
+			'message': f'Cannot connect to server at {url}. Make sure the server is running.'
+		}
+	except requests.exceptions.Timeout:
+		return {
+			'status': 'error',
+			'message': 'Request timed out. Server took too long to respond.'
 		}
 	except Exception as e:
 		return {
@@ -48,50 +44,44 @@ def send_request(host, port, operation, data, key):
 			'message': f'Connection error: {str(e)}'
 		}
 
-def send_request_https(url, operation, data, key):
-    try:
-        request = {
-            'operation': operation,
-            'plaintext': data,
-            'key': key
-        }
-        
-        # Use requests library for HTTPS
-        response = requests.post(url, json=request, timeout=30)
-        return response.json()
-    
-    except Exception as e:
-        return {
-            'status': 'error',
-            'message': f'Connection error: {str(e)}'
-        }
-
 def main():
 	print("=" * 60)
-	print("DES ENCRYPTION/DECRYPTION CLIENT")
+	print("DES ENCRYPTION/DECRYPTION HTTP CLIENT")
 	print("=" * 60)
-	print("This client connects to a DES server for encryption/decryption.")
+	print("This client connects to a DES HTTP server for encryption/decryption.")
 	print("Please enter your data in hexadecimal format (0-9, A-F).")
 	print("Both data and key must be exactly 16 hex characters (64 bits).")
 	print("=" * 60)
 	print()
 	
 	# Server connection details
-	host = input("Enter server IP address (press Enter for localhost): ").strip()
-	if not host:
-		host = 'localhost'
+	print("Enter server URL (e.g., http://localhost or https://your-tunnel.loca.lt)")
+	server_url = input("Server URL: ").strip()
 	
+	# Remove trailing slash if present
+	if server_url.endswith('/'):
+		server_url = server_url[:-1]
+	
+	# Add http:// if no protocol specified
+	if not server_url.startswith('http://') and not server_url.startswith('https://'):
+		server_url = 'http://' + server_url
+	
+	print(f"\nConnecting to server at {server_url}")
+	
+	# Test connection
 	try:
-		port = input("Enter server port (press Enter for 8888): ").strip()
-		if not port:
-			port = 8888
+		test_response = requests.get(f"{server_url}/", timeout=5)
+		if test_response.status_code == 200:
+			print("✓ Server connection successful!")
+			server_info = test_response.json()
+			if 'message' in server_info:
+				print(f"  {server_info['message']}")
 		else:
-			port = int(port)
-	except ValueError:
-		print("Invalid port number. Using default port 8888.")
-		port = 8888
+			print(f"⚠ Server responded with status code: {test_response.status_code}")
+	except Exception as e:
+		print(f"⚠ Could not verify server connection: {e}")
+		print("  Proceeding anyway...")
 	
-	print(f"\nConnecting to server at {host}:{port}")
 	print()
 	
 	while True:
@@ -137,7 +127,7 @@ def main():
 			
 			# Send request to server
 			print(f"\nSending {operation} request to server...")
-			response = send_request(host, port, operation, data, key)
+			response = send_request_http(server_url, operation, data, key)
 			
 			# Display response
 			print("\n" + "=" * 50)
