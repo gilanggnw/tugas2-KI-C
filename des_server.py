@@ -1,14 +1,12 @@
-# DES Server - Handles encryption/decryption requests from clients via HTTP
-# Supports message storage for client-to-client communication
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import json
 import uuid
 import random
-import hashlib
 from datetime import datetime
 
-# All DES functions from original code
+# ========================================
+# DES ALGORITHM IMPLEMENTATION
+# ========================================
 def hex2bin(s):
 	mp = {'0': "0000", '1': "0001", '2': "0010", '3': "0011", '4': "0100", '5': "0101",
 		'6': "0110", '7': "0111", '8': "1000", '9': "1001", 'A': "1010", 'B': "1011",
@@ -186,27 +184,49 @@ def validate_hex_input(data, length):
 	
 	return True, "Valid"
 
-# Helper functions for free-text encryption
+# ========================================
+# HELPER FUNCTIONS FOR TEXT ENCRYPTION
+# ========================================
+
 def generate_random_key():
-	"""Generate a random 16-character hex key (64 bits)"""
+	"""
+	Generate a random 16-character hex key (64 bits for DES)
+	
+	Demo point: Show that key is automatically generated
+	Example: "A1B2C3D4E5F67890"
+	"""
 	return ''.join(random.choices('0123456789ABCDEF', k=16))
 
 def text_to_hex_blocks(text):
-	"""Convert any text to hex blocks of 16 chars (padding if needed)"""
+	"""
+	Convert any plaintext to hex blocks of 16 chars
+	
+	Demo point: This allows free-form text input (no hex requirement)
+	- Converts text to UTF-8 bytes
+	- Converts bytes to hexadecimal
+	- Pads to 64-bit blocks (16 hex chars = 64 bits)
+	"""
 	# Convert text to bytes, then to hex
 	text_bytes = text.encode('utf-8')
 	hex_str = text_bytes.hex().upper()
 	
-	# Pad to multiple of 16
+	# Pad to multiple of 16 (DES requires 64-bit blocks)
 	while len(hex_str) % 16 != 0:
 		hex_str += '0'
 	
-	# Split into 16-char blocks
+	# Split into 16-char blocks for DES encryption
 	blocks = [hex_str[i:i+16] for i in range(0, len(hex_str), 16)]
 	return blocks
 
 def hex_blocks_to_text(blocks, original_length):
-	"""Convert hex blocks back to text"""
+	"""
+	Convert hex blocks back to original plaintext
+	
+	Demo point: Reverses the text_to_hex_blocks process
+	- Joins all decrypted blocks
+	- Converts hex back to UTF-8 text
+	- Removes padding to restore original message
+	"""
 	# Join all blocks
 	hex_str = ''.join(blocks)
 	
@@ -217,15 +237,30 @@ def hex_blocks_to_text(blocks, original_length):
 	text = text_bytes.decode('utf-8', errors='ignore')
 	return text[:original_length]
 
-# In-memory storage for messages (client-to-client communication)
+
+# ========================================
+# MESSAGE STORAGE
+# ========================================
+# In-memory storage for encrypted messages
+# Structure: {message_id: {encrypted_blocks, key, original_length, timestamp}}
+# Demo point: Allows Device 2 to retrieve message sent by Device 1
 messages_store = {}
 
-# Initialize Flask app
+
+# ========================================
+# FLASK WEB SERVER SETUP
+# ========================================
 app = Flask(__name__)
-CORS(app)  # Enable CORS for cross-origin requests
+CORS(app)  # Enable CORS for web browser access and localtunnel
 
 @app.route('/', methods=['GET'])
 def home():
+	"""
+	HOME ENDPOINT - Server Information
+	-----------------------------------
+	Returns API documentation and available endpoints
+	Demo point: Show this when explaining server capabilities
+	"""
 	return jsonify({
 		'status': 'success',
 		'message': 'DES Encryption/Decryption Server with Client-to-Client Communication',
@@ -245,10 +280,26 @@ def home():
 
 @app.route('/send', methods=['POST'])
 def send_message():
-	"""Client 1: Send encrypted message - returns message_id for sharing"""
+	"""
+	/SEND ENDPOINT - Device 1 sends message
+	----------------------------------------
+	Receives: {"text": "any plaintext message"}
+	Returns: {"message_id": "abc123", "key": "A1B2...", "ciphertext": "..."}
+	
+	Process:
+	1. Receive plaintext from Device 1
+	2. Auto-generate random DES key
+	3. Convert text to hex blocks
+	4. Encrypt each block with DES
+	5. Store encrypted message with unique ID
+	6. Return message_id and key to sender
+	
+	Demo point: This is where encryption happens!
+	"""
 	try:
 		data = request.get_json()
 		
+		# Validate input
 		if not data or 'text' not in data:
 			return jsonify({
 				'status': 'error',
@@ -263,25 +314,26 @@ def send_message():
 				'message': 'Text cannot be empty'
 			}), 400
 		
-		# Generate random key
+		# STEP 1: Generate random DES key (16 hex chars = 64 bits)
 		key = generate_random_key()
 		
-		# Convert plaintext to hex blocks
+		# STEP 2: Convert plaintext to hex blocks (64-bit blocks for DES)
 		original_length = len(plaintext)
 		hex_blocks = text_to_hex_blocks(plaintext)
 		
-		# Encrypt each block
+		# STEP 3: Generate round keys for DES (16 rounds)
 		rkb = generate_round_keys(key)
 		encrypted_blocks = []
 		
+		# STEP 4: Encrypt each block using DES algorithm
 		for block in hex_blocks:
-			cipher_block = bin2hex(encrypt_decrypt(block, rkb))
+			cipher_block = bin2hex(encrypt_decrypt(block, rkb))  # DES encryption
 			encrypted_blocks.append(cipher_block)
 		
-		# Generate unique message ID
-		message_id = str(uuid.uuid4())[:8]
+		# STEP 5: Generate unique message ID for retrieval
+		message_id = str(uuid.uuid4())[:8]  # Short 8-char ID
 		
-		# Store message
+		# STEP 6: Store encrypted message in memory
 		messages_store[message_id] = {
 			'encrypted_blocks': encrypted_blocks,
 			'key': key,
@@ -290,19 +342,20 @@ def send_message():
 			'sender_info': 'Client 1'
 		}
 		
-		# Join encrypted blocks into single ciphertext
+		# STEP 7: Prepare ciphertext for display
 		ciphertext = ''.join(encrypted_blocks)
 		
+		# STEP 8: Return result to Device 1
 		return jsonify({
 			'status': 'success',
-			'message_id': message_id,
-			'key': key,
-			'ciphertext': ciphertext,
-			'plaintext': plaintext,
+			'message_id': message_id,      # Share this with Device 2
+			'key': key,                      # Auto-generated DES key
+			'ciphertext': ciphertext,        # Encrypted data
+			'plaintext': plaintext,          # Original message (for verification)
 			'encrypted_blocks': len(encrypted_blocks),
 			'instruction': f'Share this message_id with the receiver: {message_id}'
 		})
-	
+		
 	except Exception as e:
 		return jsonify({
 			'status': 'error',
@@ -311,10 +364,26 @@ def send_message():
 
 @app.route('/receive', methods=['POST'])
 def receive_message():
-	"""Client 2: Receive and decrypt message using message_id"""
+	"""
+	/RECEIVE ENDPOINT - Device 2 receives message
+	----------------------------------------------
+	Receives: {"message_id": "abc123"}
+	Returns: {"plaintext": "original message", "ciphertext": "...", "key": "..."}
+	
+	Process:
+	1. Receive message_id from Device 2
+	2. Retrieve encrypted message from storage
+	3. Get the DES key used for encryption
+	4. Decrypt each block with DES
+	5. Convert hex back to plaintext
+	6. Return decrypted message to Device 2
+	
+	Demo point: This is where decryption happens!
+	"""
 	try:
 		data = request.get_json()
 		
+		# Validate input
 		if not data or 'message_id' not in data:
 			return jsonify({
 				'status': 'error',
@@ -323,40 +392,42 @@ def receive_message():
 		
 		message_id = data['message_id']
 		
-		# Check if message exists
+		# STEP 1: Check if message exists in storage
 		if message_id not in messages_store:
 			return jsonify({
 				'status': 'error',
 				'message': f'Message ID not found: {message_id}'
 			}), 404
 		
-		# Retrieve message
+		# STEP 2: Retrieve stored message data
 		msg = messages_store[message_id]
-		encrypted_blocks = msg['encrypted_blocks']
-		key = msg['key']
-		original_length = msg['original_length']
+		encrypted_blocks = msg['encrypted_blocks']  # Ciphertext blocks
+		key = msg['key']                            # Original DES key
+		original_length = msg['original_length']    # For removing padding
 		
-		# Decrypt each block
+		# STEP 3: Generate round keys for decryption (same as encryption)
 		rkb = generate_round_keys(key)
-		rkb_rev = rkb[::-1]
+		rkb_rev = rkb[::-1]  # Reverse order for DES decryption
 		decrypted_blocks = []
 		
+		# STEP 4: Decrypt each block using DES algorithm
 		for block in encrypted_blocks:
-			plain_block = bin2hex(encrypt_decrypt(block, rkb_rev))
+			plain_block = bin2hex(encrypt_decrypt(block, rkb_rev))  # DES decryption
 			decrypted_blocks.append(plain_block)
 		
-		# Convert back to text
+		# STEP 5: Convert decrypted hex blocks back to text
 		plaintext = hex_blocks_to_text(decrypted_blocks, original_length)
 		
-		# Join encrypted blocks into single ciphertext
+		# STEP 6: Prepare ciphertext for display
 		ciphertext = ''.join(encrypted_blocks)
 		
+		# STEP 7: Return decrypted message to Device 2
 		return jsonify({
 			'status': 'success',
 			'message_id': message_id,
-			'plaintext': plaintext,
-			'ciphertext': ciphertext,
-			'key': key,
+			'plaintext': plaintext,          # Original message successfully decrypted!
+			'ciphertext': ciphertext,        # Show the encrypted version
+			'key': key,                      # The DES key that was used
 			'timestamp': msg['timestamp'],
 			'encrypted_blocks': len(encrypted_blocks)
 		})
@@ -556,21 +627,28 @@ if __name__ == "__main__":
 	print("=" * 60)
 	print("DES ENCRYPTION/DECRYPTION HTTP SERVER")
 	print("=" * 60)
-	print("Server starting on port 5000...")
-	print("Endpoints available:")
-	print("  GET  / - Server info")
-	print("  POST /process - Encrypt or decrypt (operation parameter)")
-	print("  POST /encrypt - Encrypt data")
-	print("  POST /decrypt - Decrypt data")
+	print("DES ENCRYPTION/DECRYPTION HTTP SERVER")
 	print("=" * 60)
-	print("\nTo use with localtunnel:")
+	print("Server starting on port 5000...")
+	print("\n📋 Main Endpoints (for Client-to-Client Communication):")
+	print("  GET  /            - Server info and API documentation")
+	print("  POST /send        - Device 1: Encrypt & store message")
+	print("  POST /receive     - Device 2: Retrieve & decrypt message")
+	print("  GET  /messages    - View all stored messages")
+	print("\n🔧 Legacy Endpoints (direct encryption):")
+	print("  POST /encrypt     - Direct encryption")
+	print("  POST /decrypt     - Direct decryption")
+	print("=" * 60)
+	print("\n🌐 For Remote Access (Localtunnel):")
 	print("  1. Keep this server running")
 	print("  2. Open a new terminal")
 	print("  3. Run: lt --port 5000")
-	print("  4. Use the provided URL in the client")
+	print("  4. Use the provided URL in des_client.py")
+	print("=" * 60)
+	print("\n✅ Server is ready! Waiting for client connections...")
+	print("   Press Ctrl+C to stop the server")
 	print("=" * 60)
 	print()
 	
-	# Run Flask app on port 5000 (doesn't require admin privileges)
-	# Perfect for development and localtunnel
+	# Run Flask app on port 5000
 	app.run(host='0.0.0.0', port=5000, debug=False)
